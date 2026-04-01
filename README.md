@@ -42,6 +42,8 @@ OpenClaw 是一个开源的 **AI 驱动游戏开发工作台**，内置 8 个专
 
 ## ✅ 功能状态
 
+> 最后更新：2026-04-01
+
 ### 已完成 (Implemented)
 
 #### 后端核心
@@ -53,29 +55,37 @@ OpenClaw 是一个开源的 **AI 驱动游戏开发工作台**，内置 8 个专
 - [x] **SQLite 持久化数据库** — Pipeline、步骤、日志、Agent 快照、消息队列全部落盘，重启不丢失
 - [x] **文件上传 API** — 支持 `.md/.pdf/.docx/.zip` 文本提取，文件夹批量上传
 - [x] **RESTful API 服务** — FastAPI 提供完整的管理接口（Pipeline CRUD、Agent 配置、沙盒管理等）
-- [x] **LLM 适配器** — 支持多 Provider / 多模型配置，每个 Agent 可独立配置模型
+- [x] **LLM 适配器（真实调用）** — 支持 OpenAI / Anthropic / DeepSeek / 自定义 Provider，每个 Agent 独立配置模型；`invoke_sync` 有 API Key 时真实发起 HTTP 请求
+- [x] **LLM 注入到 Agent** — `BaseAgent` 注入 `llm_invoker`，提供 `call_llm()` 便利方法，子类一行代码调用 LLM
+- [x] **用户消息投递 API** — `POST /api/pipelines/{id}/message`，将用户输入广播给活跃 Agent
+- [x] **决策响应 API** — `POST /api/pipelines/{id}/decision`，打通前端审批卡片与后端流水线
 
 #### 8 个专业 Agent
-| Agent | 职责 | 状态 |
-|-------|------|------|
-| 🎬 制作人 (Producer) | 需求分析、流程总控 | ✅ |
-| 📊 项目管理 (PM) | 任务拆解、进度跟踪 | ✅ |
-| 📋 策划 (Planner) | 游戏设计文档、玩法规划 | ✅ |
-| 🔧 主程 (Tech Lead) | 技术架构、代码审查 | ✅ |
-| 💻 程序 (Programmer) | 代码实现 | ✅ |
-| 🎨 美术 (Artist) | 美术需求文档、资源规划 | ✅ |
-| ✨ UX 设计师 | 交互设计、界面规范 | ✅ |
-| 🧪 QA | 测试方案、Bug 报告 | ✅ |
+| Agent | 职责 | 框架 | LLM 接入 |
+|-------|------|------|----------|
+| 🎬 制作人 (Producer) | 需求分析、流程总控 | ✅ | ✅ 已注入 |
+| 📊 项目管理 (PM) | 任务拆解、进度跟踪 | ✅ | ✅ 已注入 |
+| 📋 策划 (Planner) | 游戏设计文档、玩法规划 | ✅ | ✅ 已注入 |
+| 🔧 主程 (Tech Lead) | 技术架构、代码审查 | ✅ | ✅ 已注入 |
+| 💻 程序 (Programmer) | 代码实现 | ✅ | ✅ 已注入 |
+| 🎨 美术 (Artist) | 美术需求文档、资源规划 | ✅ | ✅ 已注入 |
+| ✨ UX 设计师 | 交互设计、界面规范 | ✅ | ✅ 已注入 |
+| 🧪 QA | 测试方案、Bug 报告 | ✅ | ✅ 已注入 |
+
+> **说明**：Agent 框架与步骤定义完整，LLM 已注入并可真实调用。各 Agent 的业务逻辑（策划案内容、代码生成等）目前输出结构化骨架，LLM 填充内容欢迎社区贡献。
 
 #### 前端工作空间
 - [x] **Dashboard 首页** — 项目创建、历史列表、快速操作
 - [x] **全屏工作空间** — 左侧 Agent 过程可视化 + 右侧工具面板双栏布局
 - [x] **Agent 消息流** — 实时展示每个 Agent 的工作进展与思考过程
-- [x] **决策门禁 (Human-in-the-Loop)** — 关键节点人工审批卡片
+- [x] **决策门禁 (Human-in-the-Loop)** — 关键节点人工审批，前后端均已打通
 - [x] **阶段交付物展示** — 代码/文档/设计/测试产出物卡片
-- [x] **文件上传 UI** — 支持文件选择、文件夹上传、拖拽上传，选中后本地预览标签
+- [x] **文件上传 UI** — 文件/文件夹选择、拖拽上传、本地预览标签，发送时真实调用后端 API
+- [x] **用户消息发送** — 工作空间输入框消息广播给活跃 Agent
 - [x] **项目概览 Tab** — 流水线进度、阶段时间线、Agent 分工展示
-- [x] **项目文件树** — 浏览 Agent 产出的所有文件
+- [x] **项目文件树（真实数据）** — 从沙盒 API 拉取真实目录，刷新按钮可用
+- [x] **代码查看器** — 从 Agent 规则 API 加载真实内容
+- [x] **活动日志 Tab** — 真实调用后端 `GET /api/pipelines/{id}/logs`
 - [x] **项目管理** — 重命名、删除（含确认弹窗）、搜索
 - [x] **热更新开发模式** — Vite dev server + API 代理
 
@@ -84,16 +94,15 @@ OpenClaw 是一个开源的 **AI 驱动游戏开发工作台**，内置 8 个专
 ### 🚧 待完成 / 欢迎贡献 (In Progress / Help Wanted)
 
 #### 高优先级
-- [ ] **WebSocket 实时推送** — 目前前端靠轮询获取状态，需改为 WebSocket 真正实时推送 `[difficulty: medium]`
-- [ ] **Agent 真正执行 LLM 调用** — 当前 Agent 框架已搭建，LLM 调用链路需完善 `[difficulty: high]`
+- [ ] **Agent 业务逻辑 LLM 化** — 各 Agent 的步骤方法（策划案、代码生成等）目前返回结构化骨架，需接入 `call_llm()` 生成真实内容 `[difficulty: high]` `[good first PR]`
+- [ ] **WebSocket 实时推送** — 目前前端 5 秒轮询，改为 WebSocket 后可真正实时展示 Agent 工作流 `[difficulty: medium]`
 - [ ] **GitHub 仓库 Clone 解析** — URL 输入后自动 clone 并提取需求文本 `[difficulty: medium]`
 - [ ] **Monaco 在线代码编辑器** — 右侧 Tab 集成 Monaco Editor，支持在线查看/编辑 Agent 产出代码 `[difficulty: medium]`
 
 #### 中优先级
-- [ ] **应用沙盒预览** — iframe 安全隔离预览 Agent 生成的 Web 应用 `[difficulty: high]`
-- [ ] **决策门禁真正接入后端** — 目前决策仅前端展示，需打通后端暂停/恢复流水线 `[difficulty: medium]`
-- [ ] **用户消息投递到 Agent** — 工作空间输入框的消息需真正广播给活跃 Agent `[difficulty: medium]`
+- [ ] **应用沙盒预览** — iframe 安全隔离预览 Agent 生成的 Web 应用（AppViewer Tab） `[difficulty: high]`
 - [ ] **Agent 输出结构化解析** — 将 LLM 输出自动解析为文档/代码/任务卡片 `[difficulty: high]`
+- [ ] **决策门禁暂停/恢复流水线** — 用户拒绝时真正暂停 Pipeline 等待重新输入 `[difficulty: medium]`
 
 #### 低优先级 / 功能增强
 - [ ] **用户认证系统** — 多用户支持、项目权限管理 `[difficulty: medium]`
