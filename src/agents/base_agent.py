@@ -83,32 +83,35 @@ class BaseAgent(ABC):
     }
     
     def __init__(self, agent_id: str, sandbox_mgr: SandboxManager,
-                 message_queue: MessageQueue, context_mgr: ContextManager):
+                 message_queue: MessageQueue, context_mgr: ContextManager,
+                 llm_invoker=None):
         """
         初始化Agent
-        
+
         Args:
             agent_id: Agent唯一ID
             sandbox_mgr: 沙盒管理器
             message_queue: 消息队列
             context_mgr: 上下文管理器
+            llm_invoker: LLM调用器（可选，有则真实调用LLM）
         """
         self.agent_id = agent_id
         self.sandbox_mgr = sandbox_mgr
         self.mq = message_queue
         self.ctx_mgr = context_mgr
-        
+        self.llm_invoker = llm_invoker  # 注入 LLM 调用器
+
         # 沙盒文件代理 — 所有文件操作必须通过此代理
         self.file_proxy = SandboxFileProxy(sandbox_mgr, agent_id)
-        
+
         # 从子类获取配置
         self.persona = self.get_persona()
         self.permissions = self.get_permissions()
         self.steps = self.get_steps()
-        
+
         # 当前上下文
         self.context: Optional[AgentContext] = None
-        
+
         # 执行日志
         self._execution_log: List[dict] = []
     
@@ -288,6 +291,42 @@ class BaseAgent(ABC):
         
         return str(filepath)
     
+    def call_llm(self, prompt: str, system_prompt: str = "",
+                 context_summary: str = "") -> str:
+        """
+        便利方法：同步调用 LLM 并返回文本响应
+
+        Args:
+            prompt: 用户侧提示词
+            system_prompt: 系统提示词（覆盖默认）
+            context_summary: 附加到 prompt 的上下文摘要
+
+        Returns:
+            LLM 响应文本；无 invoker 时返回占位字符串
+        """
+        if not self.llm_invoker:
+            return (
+                f"[{self.persona.icon} {self.persona.name}] "
+                f"暂未配置 LLM，请在「智能体配置」页面设置 API Key。"
+            )
+
+        full_prompt = prompt
+        if context_summary:
+            full_prompt = f"{context_summary}\n\n---\n\n{prompt}"
+
+        default_system = (
+            f"你是 {self.persona.name}，{self.persona.experience}。"
+            f"沟通风格：{self.persona.communication_style}。"
+            f"决策原则：{self.persona.decision_principle}。"
+        )
+
+        result = self.llm_invoker.invoke_sync(
+            agent_id=self.agent_id,
+            messages=[{"role": "user", "content": full_prompt}],
+            system_prompt=system_prompt or default_system,
+        )
+        return result.get("content", "")
+
     def self_reflect(self) -> Dict[str, Any]:
         """
         自我反思（流转前必须执行）

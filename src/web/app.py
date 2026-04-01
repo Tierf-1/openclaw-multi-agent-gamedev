@@ -228,7 +228,7 @@ class AppState:
         self.initialized = True
 
     def _register_agents(self):
-        """注册所有Agent实例到编排器"""
+        """注册所有Agent实例到编排器（注入 llm_invoker 使 Agent 能真正调用 LLM）"""
         try:
             from agents import AGENT_REGISTRY
             for agent_id, agent_cls in AGENT_REGISTRY.items():
@@ -238,6 +238,7 @@ class AppState:
                         sandbox_mgr=self.orchestrator.sandbox_mgr,
                         message_queue=self.orchestrator.mq,
                         context_mgr=self.orchestrator.ctx_mgr,
+                        llm_invoker=self.llm_invoker,  # 注入 LLM 调用器
                     )
                     self.orchestrator.register_agent(agent_id, agent_instance)
                     logger.info(f"注册Agent: {agent_id} ({agent_cls.__name__})")
@@ -949,6 +950,77 @@ def create_app(project_root: str = None) -> FastAPI:
         return ApiResponse(
             message=f"流水线 {pipeline_id} 已重命名",
             data=instance.to_dict()
+        )
+
+    # ── 用户消息投递 API ─────────────────────────────
+    @app.post("/api/pipelines/{pipeline_id}/message")
+    async def send_user_message(pipeline_id: str, req: RequirementRequest):
+        """将用户在工作空间输入的消息广播给所有活跃 Agent"""
+        state = get_state()
+
+        pipeline = state.orchestrator.pipeline_engine.get_pipeline(pipeline_id)
+        if not pipeline:
+            raise HTTPException(status_code=404, detail=f"流水线 {pipeline_id} 不存在")
+
+        from core.message_queue import Message, MessageType, MessagePriority
+        msg = Message(
+            from_agent="user",
+            to_agent="__broadcast__",
+            msg_type=MessageType.USER_INPUT.value if hasattr(MessageType, "USER_INPUT") else "user_input",
+            priority=MessagePriority.HIGH.value,
+            payload={
+                "text": req.user_input,
+                "pipeline_id": pipeline_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+        msg_id = state.orchestrator.mq.send(msg)
+
+        state.orchestrator._record_log(
+            "user_message",
+            f"用户消息已投递: {req.user_input[:50]}",
+            pipeline_id=pipeline_id
+        )
+
+        return ApiResponse(
+            message="消息已投递",
+            data={"msg_id": msg_id, "pipeline_id": pipeline_id}
+        )
+
+    # ── 决策响应 API ─────────────────────────────────
+    @app.post("/api/pipelines/{pipeline_id}/decision")
+    async def submit_decision(pipeline_id: str, decision_id: str, response: str):
+        """提交用户对决策门禁的响应（approve / reject / skip）"""
+        state = get_state()
+
+        pipeline = state.orchestrator.pipeline_engine.get_pipeline(pipeline_id)
+        if not pipeline:
+            raise HTTPException(status_code=404, detail=f"流水线 {pipeline_id} 不存在")
+
+        from core.message_queue import Message, MessagePriority
+        msg = Message(
+            from_agent="user",
+            to_agent="__orchestrator__",
+            msg_type="decision_response",
+            priority=MessagePriority.HIGH.value,
+            payload={
+                "decision_id": decision_id,
+                "response": response,
+                "pipeline_id": pipeline_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+        state.orchestrator.mq.send(msg)
+
+        state.orchestrator._record_log(
+            "decision_response",
+            f"用户决策: {decision_id} → {response}",
+            pipeline_id=pipeline_id
+        )
+
+        return ApiResponse(
+            message=f"决策已提交: {response}",
+            data={"decision_id": decision_id, "response": response}
         )
 
     # ── 流水线日志 API（按项目）──────────────────────

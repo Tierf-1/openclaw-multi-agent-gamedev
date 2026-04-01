@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import type { FileNode } from '@/api/types'
 import clsx from 'clsx'
+import client from '@/api/client'
+import type { ApiResponse } from '@/api/types'
 
 interface FileExplorerProps {
   pipelineId: string
@@ -98,59 +101,54 @@ function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
  * Tab4: 项目文件 — 文件树浏览器
  */
 export default function FileExplorer({ pipelineId }: FileExplorerProps) {
-  const { fileTree } = useWorkspaceStore()
+  const { fileTree, setFileTree } = useWorkspaceStore()
+  const [loading, setLoading] = useState(false)
 
-  // 模拟文件树（实际从 API 获取）
-  const mockTree: FileNode[] = fileTree.length > 0 ? fileTree : [
+  // 从后端 API 拉取真实文件树
+  useEffect(() => {
+    if (!pipelineId) return
+    setLoading(true)
+    client.get<ApiResponse<{ dirs: string[]; path: string }[]>>('/sandboxes')
+      .then(({ data }) => {
+        const sandboxes = Array.isArray(data.data) ? data.data : []
+        if (sandboxes.length === 0) return
+
+        // 将 dirs 列表转为 FileNode 树
+        const nodes: FileNode[] = sandboxes.flatMap((sb) =>
+          (sb.dirs || []).map((dir) => ({
+            name: dir,
+            path: `${sb.path}/${dir}`,
+            type: 'directory' as const,
+            children: [],
+          }))
+        )
+        if (nodes.length > 0) setFileTree(nodes)
+      })
+      .catch(() => { /* 静默失败，降级为占位 */ })
+      .finally(() => setLoading(false))
+  }, [pipelineId, setFileTree])
+
+  // 占位文件树（后端无数据时使用）
+  const placeholderTree: FileNode[] = [
     {
       name: 'src',
       path: 'src',
       type: 'directory',
       children: [
-        {
-          name: 'components',
-          path: 'src/components',
-          type: 'directory',
-          children: [
-            { name: 'GameScene.ts', path: 'src/components/GameScene.ts', type: 'file', size: 4200, language: 'typescript' },
-            { name: 'Player.ts', path: 'src/components/Player.ts', type: 'file', size: 2800, language: 'typescript' },
-            { name: 'UIManager.ts', path: 'src/components/UIManager.ts', type: 'file', size: 3100, language: 'typescript' },
-          ],
-        },
-        {
-          name: 'systems',
-          path: 'src/systems',
-          type: 'directory',
-          children: [
-            { name: 'PhysicsSystem.ts', path: 'src/systems/PhysicsSystem.ts', type: 'file', size: 5600, language: 'typescript' },
-            { name: 'RenderSystem.ts', path: 'src/systems/RenderSystem.ts', type: 'file', size: 3800, language: 'typescript' },
-          ],
-        },
-        { name: 'main.ts', path: 'src/main.ts', type: 'file', size: 1200, language: 'typescript' },
-        { name: 'config.json', path: 'src/config.json', type: 'file', size: 800, language: 'json' },
+        { name: 'GameScene.ts', path: 'src/GameScene.ts', type: 'file', size: 0, language: 'typescript' },
+        { name: 'Player.ts', path: 'src/Player.ts', type: 'file', size: 0, language: 'typescript' },
       ],
     },
-    {
-      name: 'assets',
-      path: 'assets',
-      type: 'directory',
-      children: [
-        { name: 'sprites', path: 'assets/sprites', type: 'directory', children: [] },
-        { name: 'sounds', path: 'assets/sounds', type: 'directory', children: [] },
-      ],
-    },
-    { name: 'package.json', path: 'package.json', type: 'file', size: 1500, language: 'json' },
-    { name: 'README.md', path: 'README.md', type: 'file', size: 2200, language: 'markdown' },
-    { name: 'tsconfig.json', path: 'tsconfig.json', type: 'file', size: 600, language: 'json' },
+    { name: 'README.md', path: 'README.md', type: 'file', size: 0, language: 'markdown' },
   ]
 
-  // 统计文件数
-  const countFiles = (nodes: FileNode[]): number => {
-    return nodes.reduce((acc, node) => {
+  const displayTree = fileTree.length > 0 ? fileTree : placeholderTree
+
+  const countFiles = (nodes: FileNode[]): number =>
+    nodes.reduce((acc, node) => {
       if (node.type === 'file') return acc + 1
       return acc + (node.children ? countFiles(node.children) : 0)
     }, 0)
-  }
 
   return (
     <div className="flex h-full flex-col">
@@ -159,9 +157,29 @@ export default function FileExplorer({ pipelineId }: FileExplorerProps) {
         <div className="flex items-center gap-2">
           <span className="text-sm">📁</span>
           <span className="text-[12px] font-semibold text-gray-900">项目文件</span>
-          <span className="text-[11px] text-gray-400">{countFiles(mockTree)} 个文件</span>
+          <span className="text-[11px] text-gray-400">
+            {loading ? '加载中...' : `${countFiles(displayTree)} 个文件`}
+          </span>
         </div>
         <button
+          onClick={() => {
+            setLoading(true)
+            client.get<ApiResponse<{ dirs: string[]; path: string }[]>>('/sandboxes')
+              .then(({ data }) => {
+                const sandboxes = Array.isArray(data.data) ? data.data : []
+                const nodes: FileNode[] = sandboxes.flatMap((sb) =>
+                  (sb.dirs || []).map((dir) => ({
+                    name: dir,
+                    path: `${sb.path}/${dir}`,
+                    type: 'directory' as const,
+                    children: [],
+                  }))
+                )
+                if (nodes.length > 0) setFileTree(nodes)
+              })
+              .catch(() => {})
+              .finally(() => setLoading(false))
+          }}
           className="flex h-6 items-center gap-1 rounded px-2 text-[11px] text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
           title="刷新文件树"
         >
@@ -174,7 +192,7 @@ export default function FileExplorer({ pipelineId }: FileExplorerProps) {
 
       {/* 文件树 */}
       <div className="flex-1 overflow-y-auto p-2">
-        {mockTree.map((node) => (
+        {displayTree.map((node) => (
           <FileTreeNode key={node.path} node={node} depth={0} />
         ))}
       </div>

@@ -86,3 +86,46 @@ export async function renamePipeline(pipelineId: string, name: string): Promise<
   await client.put(`/pipelines/${pipelineId}/rename`, { name })
 }
 
+/** 将用户消息投递到 Pipeline 的活跃 Agent */
+export async function sendUserMessage(pipelineId: string, text: string): Promise<{ msg_id: string }> {
+  const { data } = await client.post<ApiResponse<{ msg_id: string }>>(
+    `/pipelines/${pipelineId}/message`,
+    { user_input: text }
+  )
+  return data.data
+}
+
+/** 提交用户对决策门禁的响应 */
+export async function submitDecision(
+  pipelineId: string,
+  decisionId: string,
+  response: string
+): Promise<void> {
+  await client.post(
+    `/pipelines/${pipelineId}/decision`,
+    null,
+    { params: { decision_id: decisionId, response } }
+  )
+}
+
+/** 获取沙盒文件树（用于 FileExplorer） */
+export async function fetchSandboxFiles(pipelineId: string): Promise<{
+  agent_id: string
+  path: string
+  dirs: string[]
+} | null> {
+  try {
+    const { data } = await client.get<ApiResponse<{
+      agent_id: string
+      path: string
+      dirs: string[]
+    }>>(`/sandboxes`)
+    // 返回第一个有内容的沙盒
+    const sandboxes = Array.isArray(data.data) ? data.data : []
+    return sandboxes[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+

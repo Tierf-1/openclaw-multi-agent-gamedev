@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { POLLING_INTERVAL, TEAM_MEMBERS } from '@/utils/constants'
 import { PageLoader } from '@/components/ui/Spinner'
 import { fetchPipelines } from '@/api/pipelines'
-import { uploadFiles } from '@/api/pipelines'
+import { uploadFiles, sendUserMessage, submitDecision } from '@/api/pipelines'
 import { fetchLogs } from '@/api/logs'
 import WorkspaceLayout from '@/components/workspace/WorkspaceLayout'
 import ProcessPanel from '@/components/workspace/ProcessPanel'
@@ -172,7 +172,7 @@ export default function ProjectDetail() {
 
   // ━━━ 事件处理 ━━━
   const handleSendMessage = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const msg: WorkspaceMessage = {
         id: `user-${Date.now()}`,
         type: 'user',
@@ -181,17 +181,36 @@ export default function ProjectDetail() {
         status: 'complete',
       }
       addMessage(msg)
-      // TODO: 通过 API 将用户消息投递到后端消息队列
+      // 投递到后端消息队列
+      if (pipelineId) {
+        try {
+          await sendUserMessage(pipelineId, text)
+        } catch (e) {
+          console.warn('消息投递失败:', e)
+        }
+      }
     },
-    [addMessage]
+    [addMessage, pipelineId]
   )
 
   const handleDecisionResponse = useCallback(
-    (decisionId: string, response: string) => {
-      // TODO: 通过 API 提交决策响应
-      console.log('Decision response:', decisionId, response)
+    async (decisionId: string, response: string) => {
+      // 提交决策到后端
+      if (pipelineId) {
+        try {
+          await submitDecision(pipelineId, decisionId, response)
+          addMessage({
+            id: `decision-resp-${Date.now()}`,
+            type: 'system',
+            content: `✅ 决策已提交：${response === 'approve' ? '确认通过' : response === 'reject' ? '需要修改' : '跳过'}`,
+            timestamp: new Date().toISOString(),
+          })
+        } catch (e) {
+          console.warn('决策提交失败:', e)
+        }
+      }
     },
-    []
+    [addMessage, pipelineId]
   )
 
   const handleFileUpload = useCallback(

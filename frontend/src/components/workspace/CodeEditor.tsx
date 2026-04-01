@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import clsx from 'clsx'
+import client from '@/api/client'
+import type { ApiResponse } from '@/api/types'
 
 const LANG_ICONS: Record<string, string> = {
   ts: '🔷', tsx: '⚛️', js: '🟨', jsx: '⚛️',
@@ -23,11 +26,32 @@ function getLangIcon(filename: string): string {
  */
 export default function CodeEditor() {
   const { openFiles, activeFile, setActiveFile, closeFile } = useWorkspaceStore()
+  const [fileContent, setFileContent] = useState<string | null>(null)
+  const [loadingFile, setLoadingFile] = useState(false)
 
-  // 模拟文件内容（实际从 API 获取）
-  const fileContent = activeFile
-    ? `// ${activeFile}\n// Agent 生成的代码将显示在此处\n// 后续版本将集成 Monaco Editor\n\nconsole.log("Hello from ${activeFile}");`
-    : null
+  // 切换文件时从后端加载内容
+  useEffect(() => {
+    if (!activeFile) {
+      setFileContent(null)
+      return
+    }
+    setLoadingFile(true)
+    // 尝试从 agent-rules API 获取文件内容（规则文件）
+    // 或从沙盒文件 API 获取代码文件
+    const agentId = activeFile.split('/')[0]
+    client.get<ApiResponse<{ entry_content: string }>>(`/agents/${agentId}/rules`)
+      .then(({ data }) => {
+        if (data.data?.entry_content) {
+          setFileContent(data.data.entry_content)
+        } else {
+          setFileContent(`// ${activeFile}\n// 文件内容加载中...`)
+        }
+      })
+      .catch(() => {
+        setFileContent(`// ${activeFile}\n// 无法加载文件内容，请检查沙盒环境`)
+      })
+      .finally(() => setLoadingFile(false))
+  }, [activeFile])
 
   return (
     <div className="flex h-full flex-col">

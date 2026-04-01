@@ -418,26 +418,63 @@ class LLMInvoker:
         """
         同步版本的 LLM 调用（供非异步上下文使用）
 
-        使用模拟响应 + 记录到日志，等待真正集成时切换到异步
+        有 API Key 时：用 asyncio 真实调用 LLM
+        无 API Key 时：返回友好占位响应，提示用户配置
         """
+        import asyncio
+
         cfg = self.config_mgr.get_config(agent_id)
-        if not cfg or not cfg.enabled or not cfg.api_key:
+        if not cfg or not cfg.enabled:
             return {
-                "content": f"[模拟响应] Agent {agent_id} 正在处理...",
+                "content": f"[Agent {agent_id} 未启用] 请在智能体配置页面启用该 Agent",
                 "usage": {},
                 "model": cfg.model if cfg else "none",
                 "provider": cfg.provider if cfg else "none",
                 "simulated": True,
             }
 
-        # 同步环境下返回模拟结果（实际生产中应使用 asyncio.run）
-        return {
-            "content": f"[等待LLM响应] {cfg.provider}/{cfg.model} - Agent {agent_id}",
-            "usage": {},
-            "model": cfg.model,
-            "provider": cfg.provider,
-            "simulated": True,
-        }
+        if not cfg.api_key:
+            return {
+                "content": (
+                    f"[{cfg.agent_name or agent_id} 待配置] "
+                    f"请在「智能体配置」页面为 {cfg.agent_name or agent_id} "
+                    f"配置 {cfg.provider.upper()} API Key，配置后将真正调用 LLM。"
+                ),
+                "usage": {},
+                "model": cfg.model,
+                "provider": cfg.provider,
+                "simulated": True,
+            }
+
+        # 有 API Key — 真实调用
+        try:
+            # 若当前有 event loop（FastAPI/asyncio 环境），用 run_coroutine_threadsafe
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.invoke(agent_id, messages, system_prompt, **kwargs),
+                        loop
+                    )
+                    return future.result(timeout=120)
+            except RuntimeError:
+                pass
+
+            # 无 event loop — 直接 asyncio.run
+            return asyncio.run(
+                self.invoke(agent_id, messages, system_prompt, **kwargs)
+            )
+        except Exception as e:
+            logger.error(f"invoke_sync 调用失败 ({agent_id}): {e}")
+            return {
+                "content": f"[LLM 调用失败] {agent_id}: {str(e)}",
+                "usage": {},
+                "model": cfg.model,
+                "provider": cfg.provider,
+                "simulated": True,
+                "error": str(e),
+            }
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
